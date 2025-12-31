@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         喵搜~豆包
 // @namespace    https://github.com/Nekozuka-Hibiki
-// @version      1.1.0
+// @version      1.2.0
 // @description  地址栏快捷问豆包：在任何页面输入 “https://www.doubao.com/chat?prompt=你的问题” 后回车，页面打开即自动填充并发送问题。支持通过菜单切换多种预设模式喵~。
 // @author       NekoNekozuka-Hibiki
 // @match        *://*/*
@@ -13,37 +13,10 @@
 (function () {
     'use strict';
 
-    // ==================== 核心填充逻辑 ====================
-
     const isDoubaoPage = location.hostname === 'www.doubao.com' && location.pathname.startsWith('/chat');
 
     if (isDoubaoPage) {
-        // 日志工具
-        const log = (type, msg, ...args) => {
-            if (['success', 'info', 'error'].includes(type)) {
-                console[type === "error" ? "error" : "log"](`[喵搜][${type.toUpperCase()}]`, msg, ...args);
-            }
-        };
-
-        const Logger = {
-            info: (...args) => log("info", ...args),
-            success: (...args) => log("success", ...args),
-            error: (...args) => log("error", ...args),
-        };
-
-        // 动态等待元素出现
-        const observeElement = (selectors, callback) => {
-            const observer = new MutationObserver(() => {
-                const elem = document.querySelector(selectors);
-                if (elem && elem.offsetWidth > 0 && elem.offsetHeight > 0) {
-                    callback(elem);
-                    observer.disconnect();
-                }
-            });
-            observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
-        };
-
-        // 预设模式
+        // ==================== 预设模式 ====================
         const PROMPTS = {
             fast: `
 请用最简洁的方式直接给出以上问题的答案。
@@ -111,7 +84,7 @@
 - 严格保留原意，不添加多余内容。`
         };
 
-        // 解析 prompt 和 mode 参数
+        // ==================== 参数解析 ====================
         const getFinalContent = () => {
             try {
                 const url = new URL(window.location.href);
@@ -123,43 +96,68 @@
                 const decoded = decodeURIComponent(userPrompt.trim());
                 const selectedPrompt = PROMPTS[mode] || PROMPTS.search;
 
-                // 清理参数
                 url.searchParams.delete("prompt");
                 url.searchParams.delete("mode");
                 window.history.replaceState({}, document.title, url.href);
 
-                const finalContent = decoded + "\n\n" + selectedPrompt.trim();
-                Logger.success(`模式: ${mode.toUpperCase()}, 总长度: ${finalContent.length}`);
-                return finalContent;
+                return decoded + "\n\n" + selectedPrompt.trim();
             } catch (e) {
-                Logger.error("参数解析失败:", e);
                 return null;
             }
         };
 
-        // 主执行流程
+        // ==================== 动态等待输入框 ====================
+        const observeElement = (selectors, callback) => {
+            const observer = new MutationObserver(() => {
+                const elem = document.querySelector(selectors);
+                if (elem && elem.offsetWidth > 0 && elem.offsetHeight > 0) {
+                    callback(elem);
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        };
+
+        // ==================== 主逻辑 ====================
         const main = () => {
             const content = getFinalContent();
             if (!content) return;
 
-            observeElement('textarea[placeholder*="消息"], textarea[placeholder*="输入"], [contenteditable="true"][role="textbox"]', (inputBox) => {
-                inputBox.focus();
-                Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set.call(inputBox, content);
-                inputBox.dispatchEvent(new Event("input", { bubbles: true }));
-                inputBox.dispatchEvent(new Event("change", { bubbles: true }));
+            observeElement('textarea[placeholder*="消息"], textarea[placeholder*="输入"], textarea[placeholder*="问"], textarea', (inputBox) => {
+                setTimeout(() => {
+                    inputBox.focus();
 
-                const sendBtn = document.querySelector('button[data-testid="chat-send-btn"], button[aria-label*="发送"], button[aria-label*="send"]');
-                if (sendBtn && sendBtn.offsetWidth > 0) {
-                    sendBtn.click();
-                    Logger.success("点击发送按钮成功");
-                } else {
-                    inputBox.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", code: "Enter" }));
-                    Logger.info("通过 Enter 键发送");
-                }
+                    // 标准填充
+                    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set?.call(inputBox, content);
+                    inputBox.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    // 模拟用户粘贴
+                    const pasteEvent = new ClipboardEvent('paste', {
+                        bubbles: true,
+                        cancelable: true,
+                        clipboardData: new DataTransfer()
+                    });
+                    pasteEvent.clipboardData.setData('text/plain', content);
+                    inputBox.dispatchEvent(pasteEvent);
+
+                    inputBox.dispatchEvent(new Event('input', { bubbles: true }));
+                    inputBox.dispatchEvent(new Event('change', { bubbles: true }));
+
+                    // 发送
+                    const trySend = () => {
+                        inputBox.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', code: 'Enter' }));
+
+                        const sendBtn = document.querySelector('button[data-testid="chat_input_send_button"], button[id="flow-end-msg-send"], button[aria-label*="发送"]');
+                        if (sendBtn) sendBtn.click();
+                    };
+
+                    trySend();
+                    setTimeout(trySend, 600);
+                    setTimeout(trySend, 1200);
+                }, 600);
             });
         };
 
-        // 页面加载完成后执行
         if (document.readyState !== 'loading') {
             main();
         } else {
@@ -167,8 +165,7 @@
         }
     }
 
-    // ==================== 全局切换菜单 ====================
-
+    // ==================== 菜单 ====================
     if (typeof GM_registerMenuCommand !== "undefined" && typeof GM_openInTab !== "undefined") {
         const baseUrl = "https://www.doubao.com/chat?prompt=";
         const modes = [
