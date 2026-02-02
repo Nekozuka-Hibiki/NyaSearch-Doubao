@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         喵搜~豆包
 // @namespace    https://github.com/Nekozuka-Hibiki
-// @version      1.2.0
+// @version      1.2.1
 // @description  地址栏快捷问豆包：在任何页面输入 “https://www.doubao.com/chat?prompt=你的问题” 后回车，页面打开即自动填充并发送问题。支持通过菜单切换多种预设模式喵~。
 // @author       NekoNekozuka-Hibiki
 // @match        *://*/*
@@ -24,7 +24,7 @@
 - 只输出核心结果，一两句话即可，禁止寒暄、解释、建议或任何附加内容。
 - 如果是数据，直接给出事实或数字。
 - 如有官网、下载地址或可靠来源等，提供有效网络链接。
-- 如果不确定或信息不足，禁止编造，必须回答“不确定”。`,
+- 如果不确定或信息不足，直接回复不确定。`,
 
             search: `
 请直接作为搜索引擎回答以上问题。
@@ -33,7 +33,7 @@
 - 全面深度搜索、包括外网及各种论坛。
 - 先给出简洁核心答案，再用项目符号列出细节。
 - 如涉及时事或数据，始终使用最新知识，并标注大致时间或来源类型。
-- 如有官网、下载地址或可靠来源等，提供有效网络链接。
+- 如有官网、下载地址或可靠来源等，优先提供有效网络链接，再补充其他内容。
 - 避免寒暄、主观评价，如果信息不足，直接说“当前信息有限”。
 - 严格基于可靠事实回答，绝不编造未确认的信息。
 - 如果存在争议，列出主流观点并注明来源类型。`,
@@ -127,23 +127,12 @@
                 setTimeout(() => {
                     inputBox.focus();
 
-                    // 标准填充
                     Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set?.call(inputBox, content);
                     inputBox.dispatchEvent(new Event('input', { bubbles: true }));
-
-                    // 模拟用户粘贴
-                    const pasteEvent = new ClipboardEvent('paste', {
-                        bubbles: true,
-                        cancelable: true,
-                        clipboardData: new DataTransfer()
-                    });
-                    pasteEvent.clipboardData.setData('text/plain', content);
-                    inputBox.dispatchEvent(pasteEvent);
 
                     inputBox.dispatchEvent(new Event('input', { bubbles: true }));
                     inputBox.dispatchEvent(new Event('change', { bubbles: true }));
 
-                    // 发送
                     const trySend = () => {
                         inputBox.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', code: 'Enter' }));
 
@@ -152,9 +141,7 @@
                     };
 
                     trySend();
-                    setTimeout(trySend, 600);
-                    setTimeout(trySend, 1200);
-                }, 600);
+                }, 800);
             });
         };
 
