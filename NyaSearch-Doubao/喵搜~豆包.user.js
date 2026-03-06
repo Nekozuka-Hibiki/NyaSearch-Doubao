@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         喵搜~豆包
 // @namespace    https://github.com/Nekozuka-Hibiki
-// @version      1.2.1
-// @description  地址栏快捷问豆包：在任何页面输入 “https://www.doubao.com/chat?prompt=你的问题” 后回车，页面打开即自动填充并发送问题。支持通过菜单切换多种预设模式喵~。
-// @author       NekoNekozuka-Hibiki
+// @version      1.2.6
+// @description  地址栏快捷问豆包：在任何页面输入 “https://www.doubao.com/chat?prompt=你的问题” 后回车，页面打开即自动填充并发送问题。支持通过菜单切换多种预设模式喵~
+// @author       Nekozuka-Hibiki
 // @match        *://*/*
 // @grant        GM_registerMenuCommand
 // @grant        GM_openInTab
@@ -13,10 +13,11 @@
 (function () {
     'use strict';
 
+    // 判断当前是否为豆包聊天页面
     const isDoubaoPage = location.hostname === 'www.doubao.com' && location.pathname.startsWith('/chat');
 
     if (isDoubaoPage) {
-        // ==================== 预设模式 ====================
+        // 预设的各种模式提示词
         const PROMPTS = {
             fast: `
 请用最简洁的方式直接给出以上问题的答案。
@@ -84,7 +85,7 @@
 - 严格保留原意，不添加多余内容。`
         };
 
-        // ==================== 参数解析 ====================
+        // 解析 URL 参数，获取用户问题和选择的模式，并清理 URL
         const getFinalContent = () => {
             try {
                 const url = new URL(window.location.href);
@@ -96,17 +97,21 @@
                 const decoded = decodeURIComponent(userPrompt.trim());
                 const selectedPrompt = PROMPTS[mode] || PROMPTS.search;
 
+                // 清理 URL 参数，防止刷新后重复执行
                 url.searchParams.delete("prompt");
                 url.searchParams.delete("mode");
                 window.history.replaceState({}, document.title, url.href);
 
-                return decoded + "\n\n" + selectedPrompt.trim();
+                return {
+                    question: decoded,
+                    prompt: selectedPrompt.trim()
+                };
             } catch (e) {
                 return null;
             }
         };
 
-        // ==================== 动态等待输入框 ====================
+        // 监听 DOM 变化，直到找到可见的输入框元素
         const observeElement = (selectors, callback) => {
             const observer = new MutationObserver(() => {
                 const elem = document.querySelector(selectors);
@@ -118,30 +123,53 @@
             observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
         };
 
-        // ==================== 主逻辑 ====================
+        // 安全地设置输入框的值，并触发 input 和 change 事件以通知页面更新
+        const setValueAndTrigger = (element, text) => {
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+            nativeSetter.call(element, text);
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
+        // 主执行逻辑：分段输入问题、换行、提示词，最后发送
         const main = () => {
-            const content = getFinalContent();
-            if (!content) return;
+            const contentObj = getFinalContent();
+            if (!contentObj) return;
 
             observeElement('textarea[placeholder*="消息"], textarea[placeholder*="输入"], textarea[placeholder*="问"], textarea', (inputBox) => {
+                inputBox.focus();
+
+                // 第一步：输入用户问题
+                setValueAndTrigger(inputBox, contentObj.question);
+
+                // 第二步：延迟后添加一个换行符 (此时显示：问题 + 换行)
                 setTimeout(() => {
-                    inputBox.focus();
+                    setValueAndTrigger(inputBox, contentObj.question + '\n');
 
-                    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set?.call(inputBox, content);
-                    inputBox.dispatchEvent(new Event('input', { bubbles: true }));
+                    // 第三步：再延迟后追加 [另一个换行符 + 提示词]
+                    // 关键点：这里使用 \n\n 确保问题和提示词之间有一个明显的空行
+                    setTimeout(() => {
+                        // 构造最终文本：问题 + 换行 + 换行 + 提示词
+                        const finalText = contentObj.question + '\n\n' + contentObj.prompt;
+                        setValueAndTrigger(inputBox, finalText);
 
-                    inputBox.dispatchEvent(new Event('input', { bubbles: true }));
-                    inputBox.dispatchEvent(new Event('change', { bubbles: true }));
+                        // 第四步：模拟 Enter 键发送消息
+                        const enterEvent = new KeyboardEvent('keydown', {
+                            key: 'Enter',
+                            code: 'Enter',
+                            keyCode: 13,
+                            which: 13,
+                            bubbles: true,
+                            cancelable: true
+                        });
 
-                    const trySend = () => {
-                        inputBox.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', code: 'Enter' }));
+                        // 短暂延迟确保 DOM 更新完成后再发送
+                        setTimeout(() => {
+                            inputBox.dispatchEvent(enterEvent);
+                        }, 100);
 
-                        const sendBtn = document.querySelector('button[data-testid="chat_input_send_button"], button[id="flow-end-msg-send"], button[aria-label*="发送"]');
-                        if (sendBtn) sendBtn.click();
-                    };
-
-                    trySend();
-                }, 800);
+                    }, 500 + Math.random() * 500); // 随机等待 0.5-1 秒
+                }, 500 + Math.random() * 500); // 随机等待 0.5-1 秒
             });
         };
 
@@ -152,7 +180,7 @@
         }
     }
 
-    // ==================== 菜单 ====================
+    // 注册油猴右键菜单，方便快速启动不同模式
     if (typeof GM_registerMenuCommand !== "undefined" && typeof GM_openInTab !== "undefined") {
         const baseUrl = "https://www.doubao.com/chat?prompt=";
         const modes = [
